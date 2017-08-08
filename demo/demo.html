@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title></title>
+    <style type="text/css">
+        html, body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: sans-serif;
+        }
+        #hud {
+            position: absolute;
+            left: 0;
+            top: 0;
+        }
+
+        #toggler {
+            display: block;
+            position: fixed;
+            z-index: 200;
+            top: 0;
+            left: 0;
+            color: #FFF;
+        }
+    </style>
+</head>
+<body>
+
+<canvas id="hud"></canvas>
+<div id="toggler">
+    <label><input type="checkbox" id="wireframeCheck" onchange="geographyMaterial.wireframe = !geographyMaterial.wireframe;" checked>Toggle Wireframe</label>
+</div>
+<script type="text/javascript" src="three.min.js"></script>
+<script type="text/javascript" src="OrbitControls.js"></script>
+<script type="text/javascript" src="../json/data.js"></script>
+<script>
+
+    var scene, camera, renderer, geometry, controls, material, mesh, clock, trackballControls, light, canvas, geographyMaterial;
+    var mtEverest_vector, mtEverest_vector_output;
+
+    var width = 300, // data width 300 x 300 data set. THIS MUST BE SAME AS THE CONVERTED JSON FILE.
+        width_step = 1, // Increase this to skip values for better frame rate.
+        wireframe = true,
+        shading = THREE.SmoothShading; // SmoothShading or FlatShading
+    
+    var data_width = 1200 / width;
+
+    var canvas_hud = document.getElementById("hud");
+    var ctx_hud = canvas_hud.getContext("2d");
+
+    init();
+    animate();
+
+    function init() {
+
+        // initalize canvas hud to display text for Mount Everest.
+        canvas_hud.height = window.innerHeight;
+        canvas_hud.width = window.innerWidth;
+        ctx_hud.strokeStyle = "#FFFFFF";
+        ctx_hud.font = "12px Arial";
+        ctx_hud.fillStyle = "#FFFFFF";
+
+        scene = new THREE.Scene();
+        var groundMaterial = new THREE.MeshPhongMaterial({
+            color : 0x222222,
+            side : THREE.DoubleSide,
+        });
+        var plane = new THREE.Mesh(new THREE.PlaneGeometry(5800, 5800), groundMaterial);
+        plane.rotation.x = - Math.PI / 2;
+        plane.receiveShadow = true;
+        scene.add(plane);
+
+        // LIGHTS
+        scene.add(new THREE.AmbientLight(0x666666));
+
+        light = new THREE.DirectionalLight(0xa0a0a0, 2.25);
+        light.position.set(400, 400, 0); // (x, z, y) for my case.
+        light.castShadow = true;
+        light.shadow.mapSize.width = 1200; // shadow detail
+        light.shadow.mapSize.height = 1200;
+        
+        light.shadow.camera.near = 1;
+        light.shadow.camera.far = 1500;
+
+        // shadow geometry
+        var d = 600;
+        light.shadow.camera.left = -d;
+        light.shadow.camera.right = d;
+        light.shadow.camera.top = d;
+        light.shadow.camera.bottom = -d;
+
+
+        scene.add(light);
+
+        camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 1, 10000 );
+        camera.position.z = 500;
+        camera.position.y = 300;
+        height_compression = 50;
+
+        // GEOMETRY GEOGRAPHY.
+        geometry = new THREE.Geometry();
+
+        // Vertices of the geography.
+        for (var i = 0; i < width; i += width_step) {
+            for (var j = 0; j < width; j += width_step) {            
+                geometry.vertices.push(
+                    new THREE.Vector3( (j - width / 2) * data_width, data[i * width + j] / height_compression, - (i - width / 2) * data_width)
+                );
+            }
+        }
+
+        // Join the vertices to create traingles surface.
+        width = width / width_step;
+        for (var i = 0; i < width-1; i++) {
+            for (var j = 0; j < width-1; j++) {
+                geometry.faces.push( new THREE.Face3( i * width + j, i * width + j + 1, i * width + width + j) );
+                geometry.faces.push( new THREE.Face3( i * width + j +1, i * width + width + j + 1, i * width + width + j) );
+            }
+        }
+        geometry.computeFaceNormals ();
+        geometry.computeVertexNormals ();
+
+        // material of the geography.    
+        // var geographyMaterial = new THREE.MeshPhongMaterial({
+        geographyMaterial = new THREE.MeshLambertMaterial({
+                color       : 0x888888,
+                shininess   : 1, 
+                shading     : shading,
+                side        : THREE.DoubleSide,
+                wireframe   : wireframe,
+                wireframeLinewidth : 1
+        });
+        var geography = new THREE.Mesh(geometry, geographyMaterial);
+        geography.castShadow = true;
+        geography.position.x = 0;
+        geography.position.y = 0;
+        geography.position.z = 0;
+        scene.add(geography);
+
+        renderer = new THREE.WebGLRenderer();
+        renderer.setSize( window.innerWidth, window.innerHeight );
+        renderer.shadowMap.enabled = true;
+
+        document.body.appendChild( renderer.domElement );
+        
+        controls = new THREE.OrbitControls( camera );
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.enableZoom = true;
+        controls.rotateSpeed = .025;
+        controls.zoomSpeed = 2;
+
+        mtEverest_vector = new THREE.Vector3();
+        mtEverest_vector_output = new THREE.Vector3(0,0,0);
+
+        canvas = renderer.domElement;
+    }
+
+    // coordinates for Mount Everest (x = 86.57, z = 8848, y = 27.29)
+    var mx = (86.85 - 86) * width / 2 * data_width * width_step, 
+        mz = 8848 / height_compression, // vary due to height compression
+        my = -(27.97 - 27) * width / 2 * data_width * width_step;
+
+    function animate() {
+        controls.update()
+        mtEverest_vector.set( mx, mz, my);
+
+        // map to normalized device coordinate (NDC) space
+        mtEverest_vector.project( camera );
+
+        // map to 2D screen space
+        mtEverest_vector_output.x = Math.round( (   mtEverest_vector.x + 1 ) * canvas.width  / 2 );
+        mtEverest_vector_output.y = Math.round( ( - mtEverest_vector.y + 1 ) * canvas.height / 2 );
+
+        // mark everest with line and text
+        ctx_hud.clearRect(0, 0,  canvas.width, canvas.height);
+        ctx_hud.beginPath();
+        ctx_hud.moveTo(mtEverest_vector_output.x,mtEverest_vector_output.y - 50);
+        ctx_hud.lineTo(mtEverest_vector_output.x,mtEverest_vector_output.y);
+        ctx_hud.stroke();
+        ctx_hud.closePath();
+        ctx_hud.fillText("Mt Everest", mtEverest_vector_output.x, mtEverest_vector_output.y - 70);
+
+        renderer.render( scene, camera );
+        requestAnimationFrame( animate );
+    }
+</script>
+</body>
+</html>
